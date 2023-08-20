@@ -1,0 +1,1281 @@
+---
+title: "Fouling Control Coatings Performance Assessment"
+output: html_document
+date: "2023-07-19"
+---
+
+```{r}
+# read the raw data 
+# (the data file should locate in the same folder with this code file)
+data <- read.csv("RAWdataforEdinburghMasters1.csv")
+```
+
+# EDA
+## Data Description
+```{r}
+# Displays a overview of the dataset's structure, including variable types, sample values, unique levels, and any missing data.
+str(data)
+```
+
+## Data Cleaning
+### Missing values
+```{r}
+require(mice)
+
+# Generate a missing data pattern plot for specific columns in the dataset, highlighting the presence of missing values across selected variables
+md.pattern(data[c('Vessel.Group','Scheme','Scheme.Group','In.Service.Period',
+                  'Route.Number','X..Activity','Activity.Group','Performance.Metric','Pass.Fail','Product.Code')])
+```
+
+```{r}
+# Extract the complete cases for analysis
+data <-  cc(data)
+# unique(data$Activity.Group)
+
+# Convert the type of the Activity.Group as the factor with increasing order level
+data$Activity.Group <- factor(data$Activity.Group, levels=c("0-30%", "31-60%", "61-100%"))
+
+```
+
+### Inconsistent data
+```{r}
+library(dplyr)
+
+# Remove inconsistent row
+# Scheme & Scheme.Group
+data <- subset(data, (Scheme >= 0 & Scheme <= 36 & Scheme.Group == "0-36") |
+                     (Scheme >= 37 & Scheme <= 60 & Scheme.Group == "37-60"))
+
+
+# X..Activity & Activity.Group
+data <- subset(data, (X..Activity >= 0 & X..Activity <= 30 & Activity.Group == "0-30%") |
+                     (X..Activity > 30 & X..Activity <= 60 & Activity.Group == "31-60%") |
+                     (X..Activity > 60 & Activity.Group == "61-100%"))
+# only select out the column we will use later
+data <- data %>% select(-c(X,Unique.Identifier,X..Activity)) # Scheme
+```
+
+## Data Exploration
+
+### Categorical variables
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# Description: This function calculates the proportion of occurrences for unique values in the specified column.
+# Input:
+#   - data: The dataset containing the relevant data.
+#   - colname: The name of the column for which the proportion needs to be calculated.
+# Output: A summarized dataframe with unique values and their corresponding proportions.
+# Usage example: proportion(data, Activity.Group)
+proportion <- function(data,colname){
+  # Group the data by the specified column and calculate the proportion of each unique value
+  prop_df <- data %>%
+    group_by({{ colname }}) %>%
+    summarise(Proportion = n() / nrow(data))
+  return(prop_df)
+}
+
+
+# visualize the proportions of each 'Activity Group' category 
+AG_prop <- ggplot(proportion(data, Activity.Group), 
+       aes(x = Activity.Group, y = Proportion, fill = Activity.Group)) +
+  geom_bar(stat = "identity", fill ="skyblue") +
+  labs(x = "Activity Group",
+       y = "Proportion")
+
+# visualize the proportions of each 'Route Number' category 
+RN_prop <- ggplot(proportion(data, Route.Number), 
+       aes(x = Route.Number, y = Proportion, fill = Route.Number)) +
+  geom_bar(stat = "identity", fill ="skyblue") +
+  labs(x = "Route Number",
+       y = "Proportion") +
+  scale_x_continuous(breaks = 1:9)
+# grid.arrange(AG_prop, RN_prop, ncol = 2)
+
+# visualize the proportions of each 'Product Code' category 
+product_prop <- ggplot(proportion(data, Product.Code), 
+       aes(x = Product.Code, y = Proportion, fill = Product.Code)) +
+  geom_bar(stat = "identity", fill ="skyblue") +
+  labs(x = "Product Code",
+       y = "Proportion") +
+  scale_x_discrete(labels = toupper(unique(data$Product.Code)[order(unique(data$Product.Code))]))
+ 
+# visualize the proportions of each 'Scheme Group' category 
+SG_prop <- ggplot(proportion(data, Scheme.Group), 
+       aes(x = Scheme.Group, y = Proportion, fill = Scheme.Group)) +
+  geom_bar(stat = "identity", fill ="skyblue") +
+  labs(x = "Scheme Group",
+       y = "Proportion")
+# grid.arrange(product_prop, SG_prop, ncol = 2)
+
+
+# Arrange the 4 plots in a 2-column grid layout for comparison
+grid.arrange(AG_prop, RN_prop, SG_prop, product_prop, ncol = 2, top = "Proportion for each Activity Group,  Route Number, Scheme Group and Product Code")
+
+# ggplot(data, aes(x = Route.Number)) +
+#   geom_bar(stat = "count", fill = "blue") +
+#   labs(title = "Proportion of Data Records for Each Activity Group",
+#        x = "Activity Group",
+#        y = "Count")
+
+
+# visualize the proportions of each 'Pass.Fail' category 
+ggplot(proportion(data, Pass.Fail), 
+       aes(x = Pass.Fail, y = Proportion, fill = Pass.Fail)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = scales::percent(Proportion)), 
+            position = position_stack(vjust = 0.5), color = "black") +
+  labs(x = "Pass.Fail",
+       y = "Proportion") +
+  ggtitle("Proportion for Pass.Fail") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+
+```
+
+### Performance Metric
+```{r}
+# visualize the distribution of 'Performance.Metric' values.
+ggplot(data, aes(x = Performance.Metric)) +
+  geom_histogram(binwidth = 2, fill = "skyblue", color = "white") +
+  labs(x = "Performance Metric", y = "Frequency", title = "Histogram of Performance Metric") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+```
+
+### Double variables - PM
+```{r}
+# Box Plot of Performance Metric by Activity Group
+PM_AG <- ggplot(data, aes(x = Activity.Group, y = Performance.Metric)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(x = "Activity Group",
+       y = "Performance Metric")
+
+
+# Box Plot of Performance Metric by Scheme Group
+PM_SG <- ggplot(data, aes(x = Scheme.Group, y = Performance.Metric)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(x = "Scheme Group",
+       y = "Performance Metric")
+
+grid.arrange(PM_AG, PM_SG, ncol = 2, top = "Box Plot of Performance Metric by Activity and Scheme Group")
+
+
+# Box Plot of Performance Metric by Route Number
+ggplot(data, aes(x = as.factor(Route.Number), y = Performance.Metric)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(title = "Box Plot of Performance Metric by Route Number",
+       x = "Route Number",
+       y = "Performance Metric") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+
+# Box Plot of Performance Metric by Product Code
+ggplot(data, aes(x = toupper(Product.Code), y = Performance.Metric)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(title = "Box Plot of Performance Metric by Product Code",
+       x = "Product Code",
+       y = "Performance Metric") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+# Box Plot of Performance Metric by Pass.Fail
+ggplot(data, aes(x = as.factor(Pass.Fail), y = Performance.Metric)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(title = "Box Plot of Performance Metric by Pass.Fail",
+       x = "Pass.Fail",
+       y = "Performance Metric") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+
+```
+
+
+
+## Counting for all combinations
+```{r}
+# Description: This function calculates the count of data points for each combination 
+#              of specified columns in a given dataframe. It provides a way to summarize 
+#              and aggregate data based on the specified column combinations. 
+
+# Inputs:
+#   - data: A dataframe containing all data points.
+#   - full_combinations: A dataframe containing all the combinations across all 
+#                        the variable you want to do the grouping for.
+
+# Output:
+#   A dataframe with columns representing the specified combinations of columns 
+#   and their corresponding counts.
+
+grouped_counting <- function(data, full_combinations){
+  # Group the data by the columns of full_combinations and calculate the count for each group
+  counting_df <- data %>%
+    group_by(across(colnames(full_combinations))) %>%
+    summarise(count = n(), .groups = "drop")
+
+  # Merge the counting information for existing combinations into the full combination table
+  counting_df <- left_join(full_combinations, counting_df,
+                           by=c(colnames(full_combinations)))
+  
+  # Replace NA values (representing non-existing combinations) with 0 count
+  counting_df[which(is.na(counting_df$count)), "count"] <- 0
+  
+  return(counting_df)
+}
+```
+
+
+### 1. Do the counting for all combinations first
+```{r}
+
+# Create a table with all combinations of 20 products, 9 routes and 3 activity groups 
+full_combinations1 <- expand.grid(Product.Code = unique(data$Product.Code),
+                                  Route.Number = unique(data$Route.Number),
+                                  Activity.Group = unique(data$Activity.Group))
+
+# count the occurrence of each unqiue combination in the dataset
+grouped_counts1 <- grouped_counting(data, full_combinations1)
+
+```
+
+
+
+## Imputations
+### by activity
+```{r}
+# Impute data based on activity group
+# 
+# Description: This function performs data imputation to fill in missing information 
+#              for the specified activity group. The purpose is to impute positive data 
+#              from lower activity groups when data is missing for higher activity groups
+#              within the same (product, route) combination.
+#
+# Inputs:
+#   - data: The dataset containing related data.
+#   - product: The code representing the product.
+#   - route: The route number.
+#   - activity_group: The activity group for which data needs to be imputed.
+#
+# Output:
+#   - imputed_df: A data frame containing imputed data for the specified activity group,
+#                 based on positive data from lower activity groups.
+#
+# Note:
+#   - The function assumes that the input dataset 'data' has columns named 'Route.Number',
+#     'Product.Code', 'Activity.Group', 'Pass.Fail', 'Vessel.Group', and 'Scheme.Group'.
+#   - The function performs data imputation by utilizing positive results from lower activity groups.
+#   - If there are existing positive results for the specified activity group, those are also included.
+#   - The function ensures that duplicated or redundant data is not included in the imputed data.
+#
+# Example usage:
+#   imputed_data <- by_activity(dataset, "a", 1, "61-100%")
+
+by_activity <- function(data, product, route, activity_group){
+  imputed_df <- data.frame()
+  
+  if (activity_group == "31-60%"){
+    # for 31-60% activity group impute positive data from 0-30% activity group with the same 
+    # (product, route, activity_group)
+    imputed_df <- subset(data, Route.Number == route & 
+                               Product.Code == product & 
+                               Activity.Group == "0-30%" & 
+                               Pass.Fail == 1)
+  }
+  
+  if (activity_group == "61-100%"){
+    # for 61-100% activity group impute positive data from 31-60% activity group with the same 
+    # (product, route, activity_group)
+    imputed_df <- subset(data, Route.Number == route & 
+                               Product.Code == product & 
+                               Activity.Group == "31-60%" & 
+                               Pass.Fail == 1)
+  } 
+  # existing positive data for current (Route.Number, Product.Code, Activity.Group)
+  existing_data <- subset(data, Route.Number == route & 
+                                Product.Code == product & 
+                                Activity.Group == activity_group & 
+                                Pass.Fail == 1)
+  
+  # if there are positive results from the lower activity group,
+  # use these data for the imputed data for current activity group by changing the Activity.Group
+  if (nrow(imputed_df) != 0) {
+    # read up the imputed data to current Activity.Group
+    imputed_df["Activity.Group"] <- activity_group
+    if (nrow(existing_data) != 0) {
+      
+      # only do the imputation for the not existing combination
+      # remove all already existing data from the imputed dataframe
+      imputed_df <- anti_join(imputed_df, existing_data, 
+                              by = c("Vessel.Group", "Route.Number", "Activity.Group",
+                                     "Product.Code", "Scheme.Group"))
+    }
+  }
+  return (imputed_df)
+}
+
+
+```
+
+### 2. impute by activity for 31-60% & 61-100% activity (missing values & small sample size)
+```{r}
+# for activity group == 31-60% & 61-100%
+AG23 <- subset(grouped_counts1, count < 10 & (Activity.Group == "31-60%" | Activity.Group == "61-100%"))
+
+# Do the imputation by activity 
+imputed_by_activity <- data.frame()
+for (i in 1:nrow(AG23)){
+  imputed_df <- by_activity(data, 
+                            AG23$Product.Code[i], AG23$Route.Number[i], AG23$Activity.Group[i])
+  
+  imputed_by_activity <- rbind(imputed_by_activity, imputed_df)
+}
+
+
+# combine the imputed values with original data
+data1 <- rbind(data, imputed_by_activity)
+data1;imputed_by_activity
+```
+
+### 3. Do the counting again and select out the data still need to impute (missing values & small sample size)
+```{r}
+# Create a table with all combinations of 20 products, 9 routes, 3 activity groups and 2 Scheme Groups
+full_combinations2 <- expand.grid(Product.Code = unique(data$Product.Code),
+                                  Route.Number = unique(data$Route.Number),
+                                  Activity.Group = unique(data$Activity.Group),
+                                  Scheme.Group = unique(data$Scheme.Group))
+# do the counting for all unique combinations (Product.Code, Route.Number, Activity.Group, Scheme.Group)
+grouped_counts2 <- grouped_counting(data1, full_combinations2)
+
+# by time can only be applied to 37-60 scheme group
+by_time_groups_37_60 <- subset(grouped_counts2, count < 10 & Scheme.Group == "37-60")
+by_time_groups_37_60
+```
+
+### by time
+#### method 1: linear model
+```{r,warning=FALSE}
+# Filter data for "Scheme.Group" 0-36
+SG1 <- subset(data1, Scheme.Group == "0-36") #& Pass.Fail == 1
+
+# Filter data for "Scheme.Group" 37-60
+SG2 <- subset(data1, Scheme.Group == "37-60") # & Pass.Fail == 1
+
+training_data <- inner_join(SG1,SG2, 
+          by = c("Vessel.Group","In.Service.Period","Route.Number","Activity.Group","Product.Code"))
+
+hist(log(training_data$Performance.Metric.y))
+plot(training_data$Performance.Metric.y, training_data$Performance.Metric.x)
+## check
+# subset(training_data,Vessel.Group == "Bulker"& In.Service.Period == 34 & 
+#          Route.Number == 4 &Activity.Group =="31-60%" &Product.Code=="o")
+
+# linear model for imputation by time
+lm_time <- lm(Performance.Metric.y ~ Vessel.Group + In.Service.Period + Route.Number + 
+                                     Activity.Group + Product.Code + Performance.Metric.x,
+              data = training_data)
+summary(lm_time)
+# model checking
+par(mfrow=c(2,2))
+plot(lm_time, 1); plot(lm_time, 2); plot(lm_time, 3); plot(lm_time, 4)
+
+by_time1 <- function(data, product, route, activity_group, lm_model){
+  
+  
+  imputed_df <- data.frame()
+  # only can do the inference for the product existing in the training dataset
+  if (product %in% unique(training_data$Product.Code)){
+    # filter out Scheme.Group == "0-36" data for current (product, route, activity group)
+    new_data <- subset(data, Scheme.Group == "0-36" &
+                             Product.Code == product & 
+                             Route.Number == route &
+                             Activity.Group == activity_group &
+                             Vessel.Group %in% unique(training_data$Vessel.Group))
+    if (nrow(new_data) != 0){
+      # change the name of new dataframe with the same format with the linear model
+      names(new_data)[names(new_data) == "Performance.Metric"] <- "Performance.Metric.x"
+      
+      # make the prediction for Performance.Metric.y for 37-60
+      predicted_value <- predict(lm_model, newdata = new_data)
+      # remove the performance for "0-36"
+      imputed_by_time_df <- new_data %>% select(-c(Performance.Metric.x)) 
+      # add new prediction values to the dataframe
+      imputed_by_time_df['Performance.Metric'] = predicted_value
+      imputed_by_time_df['Scheme.Group'] = "37-60"
+      imputed_df <- rbind(imputed_df,imputed_by_time_df)
+      
+      
+      # existing positive data for given (Route.Number, Product.Code, Activity.Group)
+      existing_data <- subset(data, Scheme.Group == "37-60" &
+                                    Product.Code == product & 
+                                    Route.Number == route & 
+                                    Activity.Group == activity_group &
+                                    Pass.Fail == 1)
+      if (nrow(existing_data) != 0){
+        # remove existing combination from imputed dataframe
+        imputed_df <- anti_join(imputed_df, existing_data, 
+                                by = c("Vessel.Group", "Route.Number", "Activity.Group",
+                                       "Product.Code", "Scheme.Group"))
+      }
+    }
+  } 
+  return(imputed_df)
+}
+```
+
+#### calculate the mean difference
+```{r, warning=FALSE}
+# Calculate Mean Difference between Scheme Groups or Products
+# 
+# This function calculates the mean difference between two specific scheme groups (0-36 and 37-60)
+# or between two specific products, based on performance metric data. The function first filters
+# the input dataset to retrieve the relevant records for the specified comparison, either between
+# scheme groups or between products. It then calculates the mean difference of the performance
+# metrics for the selected records.
+#
+# Inputs:
+#   - data: The dataset containing the performance metric data for various groups and products.
+#   - diff_products: (Optional) A vector of two product codes to compare. If not provided,
+#                    the function will compare the mean difference between scheme groups.
+#
+# Output:
+#   - mean_diff: The calculated mean difference between performance metrics of the specified
+#                scheme groups or products. Returns NA if no matching records are found.
+#
+# Note:
+#   - The function assumes that the input dataset 'data' has columns named 'Vessel.Group',
+#     'Route.Number', 'Activity.Group', 'Product.Code', 'Scheme.Group', 'Performance.Metric.x',
+#     and 'Performance.Metric.y'.
+#   - When 'diff_products' is NULL, the function calculates the difference between scheme groups.
+#   - When 'diff_products' is provided, the function calculates the difference between products.
+#   - The function uses the 'inner_join' function to merge the relevant data for comparison.
+#
+# Example usage:
+#   # Calculate mean difference between 0-36 and 37-60 scheme groups
+#   diff_mean_scheme <- mean_difference(dataset, NULL)
+#
+#   # Calculate mean difference between two specific products
+#   diff_mean_products <- mean_difference(dataset, c("a", "b"))
+
+# use group1 to infer group2
+mean_difference <- function(data, diff_products){
+  # calculate the mean of difference between 2 scheme group (0-36 & 37-60)
+  if (is.null(diff_products)) {
+    # Filter data for "Scheme.Group" 0-36
+    group1 <- subset(data, Scheme.Group == "0-36") # & Pass.Fail == 1
+    # Filter data for "Scheme.Group" 37-60
+    group2 <- subset(data, Scheme.Group == "37-60") # & Pass.Fail == 1
+    
+    # the data with the performance record for both 2 groups (0-36 & 37-60 scheme group)
+    # with same ("Vessel.Group","Route.Number","Activity.Group", "Product.Code") 
+    same_combinations <- inner_join(group1, group2, 
+              by = c("Vessel.Group","Route.Number","Activity.Group","Product.Code"))
+  }
+  # calculate the mean of difference between 2 products 
+  else{
+    # Filter data for the first product
+    group1 <- subset(data, Product.Code == diff_products[1])
+    # Filter data for the second product
+    group2 <- subset(data, Product.Code == diff_products[2])
+    
+    # the data with the performance record for both 2 groups (2 products) 
+    # with same ("Vessel.Group","Route.Number","Activity.Group") 
+    same_combinations <- inner_join(group1, group2, 
+              by = c("Vessel.Group","Route.Number","Activity.Group","Scheme.Group"))
+  }
+  
+  if (nrow(same_combinations) == 0) return (NA)
+  # difference: PM in 37-60 in PM in 0-36
+  mean_diff <- mean(same_combinations$Performance.Metric.y - same_combinations$Performance.Metric.x)
+  return(mean_diff)
+}
+```
+
+#### method 2: mean difference between group 0-36 and 37-60
+```{r, warning=FALSE}
+# Impute Data for a Different Time Period based on Mean Difference
+# 
+# This function imputes performance data for a different time period, specifically for the
+# scheme group "37-60", based on the provided mean difference. The function first checks if
+# there exist positive records for the scheme group "0-36" with the same combination of
+# ("Route.Number", "Product.Code", "Activity.Group"). If positive records exist, the function
+# calculates the imputed performance metric for the scheme group "37-60" using the mean difference
+# and applies constraints to keep the imputed metric within a valid range (0 to 100). The function
+# also removes any existing positive data from the imputed dataframe to prevent duplicates.
+#
+# Inputs:
+#   - data: The dataset containing the original performance metric data.
+#   - product: The product code for which data is being imputed.
+#   - route: The route number for which data is being imputed.
+#   - activity_group: The activity group for which data is being imputed.
+#   - mean_diff: The mean difference to be applied to the imputed performance metric.
+#
+# Output:
+#   - imputed_df: A data frame containing the imputed performance data for the scheme group "37-60"
+#                 based on the provided mean difference.
+#
+# Note:
+#   - The function assumes that the input dataset 'data' has columns named 'Vessel.Group',
+#     'Route.Number', 'Activity.Group', 'Product.Code', 'Scheme.Group', 'Performance.Metric',
+#     and 'Pass.Fail'.
+#   - The function calculates the imputed performance metric by adding the mean difference to the
+#     performance metric of the scheme group "0-36".
+#   - The imputed performance metric is constrained to be within the valid range of 0 to 100.
+#   - The function removes any existing positive data for the same combination of attributes
+#     from the imputed dataframe to avoid duplicates.
+#
+# Example usage:
+#   imputed_data <- by_time(dataset, "a", 1, "31-60%", 5)
+by_time <- function(data, product, route, activity_group, mean_diff){
+  imputed_df <- data.frame()
+  
+  # if exist the positive scheme group 0-36 with the same (Route.Number, Product.Code, Activity.Group)
+  imputed_df <- subset(data, Scheme.Group == "0-36" &
+                             Product.Code == product & 
+                             Route.Number == route & 
+                             Activity.Group == activity_group )
+  # print(imputed_df)
+  # existing positive data for given (Route.Number, Product.Code, Activity.Group)
+  existing_data <- subset(data, Scheme.Group == "37-60" &
+                                Product.Code == product & 
+                                Route.Number == route & 
+                                Activity.Group == activity_group &
+                                Pass.Fail == 1)
+  if (nrow(imputed_df) != 0){
+    imputed_df['Scheme.Group'] <- "37-60"
+    imputed_df['Performance.Metric'] <- imputed_df['Performance.Metric'] + mean_diff
+    # avoid overflowing
+    imputed_df <- imputed_df %>%
+          mutate(Performance.Metric = pmax(0, pmin(100, Performance.Metric + mean_diff)))
+    if (nrow(existing_data) != 0){
+        # remove existing combination from imputed dataframe
+        imputed_df <- anti_join(imputed_df, existing_data, 
+                                by = c("Vessel.Group", "Route.Number", "Activity.Group",
+                                       "Product.Code", "Scheme.Group"))
+      }
+    
+  }
+  return(imputed_df)
+}
+
+
+```
+
+### 4. Impute by time
+```{r, warning=FALSE}
+# Do the imputation for the 37-60 scheme group
+imputed_by_time <- data.frame()
+for(i in 1:nrow(by_time_groups_37_60)){
+  imputed_df <- by_time(data1, by_time_groups_37_60$Product.Code[i],
+                               by_time_groups_37_60$Route.Number[i],
+                               by_time_groups_37_60$Activity.Group[i],
+                        mean_difference(data1, NULL))
+  imputed_by_time <- rbind(imputed_by_time, imputed_df)
+}
+# combine the imputed values with new dataset
+data2 <- rbind(data1,imputed_by_time)
+data2;imputed_by_time
+```
+
+### 5. Do the counting again and select out the data still need to impute (missing values & small sample size)
+```{r}
+# do the counting again for all unique combinations (Product.Code, Route.Number, Activity.Group, Scheme.Group)
+grouped_counts3 <- grouped_counting(data2, full_combinations2)
+
+# select out the groups that still need the imputation
+need_to_impute_groups <- subset(grouped_counts3, count < 10)
+need_to_impute_groups
+```
+
+
+### by product method 1
+```{r, warning=FALSE}
+# Function: impute the performance of current "product" by providing the same, worse
+#           and/or better product performance, store all imputation data into a dataframe 
+# product: the product code of current product you want to impute
+# searching_df: the searching dataframe with the available data for imputation
+# same: the product code which has the same performance with current "product";
+#       if the same product does not exist, input "none"
+# min: the product code(s) which have worse performance than current "product";
+#      if worse product(s) do not exist, input "none"
+# max: the product code(s) which have better performance than current "product";
+#      if better product(s) do not exist, input "none"
+
+impute_product <- function(product, searching_df, same, min, max){
+  imputed_df <- data.frame()
+  set.seed(123)
+  
+  if (sum(same == "none",min == "none",max == "none") == 3){
+    # print ("need to use other methods")
+    return (imputed_df)
+  }
+  
+  if (same != "none"){
+    # find out all the positive results of the product have the same performance than current product
+    same_df <- subset(searching_df, Product.Code == same & Pass.Fail == 1)
+    # there exist the positive records with the same performance of current product
+    if (nrow(same_df) != 0){
+      # copy the df of the product with same performance and change the Product.Code directly 
+      same_df["Product.Code"] <- product
+      imputed_df <- rbind(imputed_df, same_df)
+      # return (imputed_df)
+    }
+  }
+  
+  # there doesn't exist the positive records with the same performance of current product
+  if (sum(min == "none") == 0){
+    # find out all the positive results of the product(s) have worse performance than current product
+    min_df <- subset(searching_df, Product.Code %in% min & Pass.Fail == 1)
+    # there is the worse performance (largest PM) of current product can be used for imputation
+    if (nrow(min_df) != 0){
+      new_df <- min_df %>%
+        mutate(Performance.Metric = runif(n = n(), min = 0, max = Performance.Metric),
+               Product.Code = product)
+      
+      imputed_df <- rbind(imputed_df, new_df)
+    }
+    # # no worse performance can be used to impute
+    # else{
+    #   print("need to use other methods")
+    # }
+  }
+  
+  if (sum(max == "none") == 0){
+    # find out all the positive results of the product(s) have better performance than current product
+    max_df <- subset(searching_df, Product.Code %in% max & Pass.Fail == 1)
+    # there is the best performance (smallest PM) of current product can be used for imputation
+    if (nrow(max_df) != 0){
+      new_df <- max_df %>%
+        mutate(Performance.Metric = runif(n = n(), min = Performance.Metric, max = 100),
+               Product.Code = product)
+      imputed_df <- rbind(imputed_df, new_df)
+    }
+    # # no better performance can be used to impute
+    # else{
+    #   print("need to use other methods")
+    # }
+  }
+  
+  return (imputed_df)
+}
+
+# ## test
+# product = "s"
+# min = c("p","g")
+# searching_df <- subset(data, Activity.Group == "0-30%" & Route.Number == 4)
+# 
+# set.seed(123)
+# # find out all the positive results of the product(s) have the same performance than current product
+# min_df <- subset(searching_df, Product.Code == min & Pass.Fail == 1)
+# # the same performance (same PM) of current product
+# min_df %>%
+#         mutate(Performance.Metric = runif(n = n(), min = 0, max = Performance.Metric),
+#                Product.Code = product)
+
+```
+
+```{r}
+# Function: impute the performance of current "product" by corresponding product rules 
+# product: the product code of current product you want to impute
+# searching_df: the searching dataframe with the available data for imputation
+by_product1 <- function(data, product, route, activity_group, scheme_group){
+  # check the invalidation of the input of product code
+  if (product %in% unique(data$Product.Code) == FALSE){
+    print("The product code is incorrect.")
+    return(data.frame())
+  }
+  
+  # E or J or R or T
+  if (product == "e" | product == "j" | product == "r" | product == "t"){
+    # print ("need to use other methods")
+    return(data.frame())
+  }
+  
+  searching_df <- subset(data, Route.Number == route &
+                               Activity.Group == activity_group &
+                               Scheme.Group == scheme_group)
+  
+  
+  # A = M < N
+  if (product == "a"){
+    imputed_df <- impute_product(product, searching_df, "m", "none", "n")
+  }
+  # B = I
+  if (product == "b"){
+    imputed_df <- impute_product(product, searching_df, "i", "none", "none")
+  }
+  # L < C = H < F = O
+  if (product == "c"){
+    imputed_df <- impute_product(product, searching_df, "h", "l", c("f","o"))
+  }
+  # D = I < K
+  if (product == "d"){
+    imputed_df <- impute_product(product, searching_df, "i", "none", "k")
+  }  
+  # L < C = H < F = O
+  if (product == "f"){
+    imputed_df <- impute_product(product, searching_df, "o", c("c","h"), "none")
+  } 
+  # G < S
+  if (product == "g"){
+    imputed_df <- impute_product(product, searching_df, "none", "none", "s")
+  } 
+  # L < C = H < F = O
+  if (product == "h"){
+    imputed_df <- impute_product(product, searching_df, "c", "l", c("f","o"))
+  } 
+  # I
+  if (product == "i"){
+    # if D exist, I = D < K
+    if ("d" %in% unique(searching_df$Product.Code)){
+      imputed_df <- impute_product(product, searching_df, "d", "none", "k")
+    }
+    # If no data for Product D, I = B < K
+    else {
+      imputed_df <- impute_product(product, searching_df, "b", "none", "k")
+    }
+  } 
+  # K
+  if (product == "k"){
+    imputed_df <- impute_product(product, searching_df, "none", c("i","d","b"), "none")
+  } 
+  # L < C = H < F = O
+  if (product == "l"){
+    imputed_df <- impute_product(product, searching_df, "none", "none", c("c","h"))
+  } 
+  # M = A < N
+  if (product == "m"){
+    imputed_df <- impute_product(product, searching_df, "a", "none", "n")
+  } 
+  # N > A = M
+  if (product == "n"){
+    imputed_df <- impute_product(product, searching_df, "none", c("a","m"), "none")
+  } 
+  # O = F > H = C
+  if (product == "o"){
+    imputed_df <- impute_product(product, searching_df, "f", "none", c("c","h"))
+  } 
+  # P < S
+  if (product == "p"){
+    imputed_df <- impute_product(product, searching_df, "none", "none", "s")
+  } 
+  # Q < N
+  if (product == "q"){
+    imputed_df <- impute_product(product, searching_df, "none", "none", "n")
+  } 
+  # S
+  if (product == "s"){
+    imputed_df <- impute_product(product, searching_df, "none", c("p","g"), "none")
+  } 
+  
+  
+  # existing data for given (Route.Number, Product.Code, Activity.Group)
+  existing_data <- subset(searching_df, Product.Code == product & Pass.Fail == 1)
+  if (nrow(imputed_df) & nrow(existing_data) != 0){
+    # remove existing combination from imputed dataframe
+    imputed_df <- anti_join(imputed_df, existing_data, 
+                            by = c("Vessel.Group", "Route.Number", "Activity.Group",
+                                   "Product.Code", "Scheme.Group"))
+  }
+  
+  return (imputed_df)
+}
+```
+
+### by product method 2
+
+#### equal rule
+```{r}
+# Impute Data based on Equal Performance Rules and Different Product
+# 
+# This function imputes performance data for a specified product based on the performance of another
+# product that has the same performance characteristics. The function identifies records from the
+# 'equal_product' that match the specified 'scheme_group', 'route', 'activity_group', and 'Pass.Fail' status.
+# It then applies the attributes of the target 'product' to the imputed data. This approach assumes that
+# products with similar performance characteristics have comparable results for the same conditions.
+#
+# Inputs:
+#   - data: The dataset containing the original performance metric data.
+#   - product: The product code for which data is being imputed.
+#   - route: The route number for which data is being imputed.
+#   - activity_group: The activity group for which data is being imputed.
+#   - scheme_group: The scheme group used to filter data for both products.
+#   - equal_product: The product code of the reference product with similar performance characteristics.
+#
+# Output:
+#   - imputed_df: A data frame containing the imputed performance data for the specified product,
+#                 based on the performance of the reference product.
+#
+# Note:
+#   - The function assumes that the input dataset 'data' has columns named 'Vessel.Group',
+#     'Route.Number', 'Activity.Group', 'Product.Code', 'Scheme.Group', 'Performance.Metric',
+#     and 'Pass.Fail'.
+#   - The function identifies records from the 'equal_product' that match the specified criteria
+#     and copies the attributes of the target 'product' to the imputed data.
+#   - The function removes any existing positive data for the specified attributes from the
+#     imputed dataframe to prevent duplicates.
+#
+# Example usage:
+#   imputed_data <- equal_rules(dataset, "a", 1, "61-100%", "37-60", "b")
+equal_rules <- function(data, product, route, activity_group, scheme_group, equal_product){
+  
+  # obtain the interpolated data from the product with the same performance
+  imputed_df <- subset(data, Product.Code == equal_product &
+                             Scheme.Group == scheme_group &
+                             Route.Number == route & 
+                             Activity.Group == activity_group &
+                             Pass.Fail == 1)
+  
+  existing_data <- subset(data, Product.Code == product &
+                                Scheme.Group == scheme_group &
+                                Route.Number == route & 
+                                Activity.Group == activity_group &
+                                Pass.Fail == 1)
+  
+  if (nrow(imputed_df) != 0){
+    imputed_df["Product.Code"] <- product
+    if (nrow(existing_data) != 0){
+      # remove existing combination from imputed dataframe
+      imputed_df <- anti_join(imputed_df, existing_data, 
+                              by = c("Vessel.Group", "Route.Number", "Activity.Group",
+                                     "Product.Code", "Scheme.Group"))
+    }
+  }
+  return (imputed_df)
+}
+```
+
+#### unequal rule
+```{r}
+# Impute Data for Different Products with Relative Differences
+# 
+# This function imputes performance data for a specified product based on relative differences
+# observed in the performance of other products with similar attributes. The function iterates
+# through the list of 'relative_products' and checks for interpolated data matching the criteria
+# of the current relative product. It then calculates the mean difference between the current
+# relative product and the target 'product' with the same attributes. If the mean difference is
+# available, it applies this difference to the imputed data of the relative product and stores
+# it in the output dataframe 'imputed_df'. The function can help account for relative performance
+# variations between different products.
+#
+# Inputs:
+#   - data: The dataset containing the original performance metric data.
+#   - product: The target product code for which data is being imputed.
+#   - route: The route number for which data is being imputed.
+#   - activity_group: The activity group for which data is being imputed.
+#   - scheme_group: The scheme group used to filter data.
+#   - relative_products: A vector of product codes representing relative products to compare.
+#
+# Output:
+#   - imputed_df: A data frame containing the imputed performance data for the specified product,
+#                 based on relative differences observed in other products.
+#
+# Note:
+#   - The function assumes that the input dataset 'data' has columns named 'Vessel.Group',
+#     'Route.Number', 'Activity.Group', 'Product.Code', 'Scheme.Group', 'Performance.Metric',
+#     and 'Pass.Fail'.
+#   - The function iterates through each 'relative_product' to identify matching interpolated
+#     data and calculate the mean difference using the 'mean_difference' function.
+#   - If the mean difference is available and valid, the function applies this difference to
+#     the imputed data of the current relative product.
+#   - The imputed performance metric is constrained to be within the valid range of 0 to 100.
+#   - The function removes any existing positive data for the specified attributes from the
+#     imputed dataframe to prevent duplicates.
+#
+# Example usage:
+#   relative_imputed_data <- unequal_rules(dataset, "a", 1, "61-100%", "37-60", c("b", "c"))
+unequal_rules <- function(data, product, route, activity_group, scheme_group, relative_products){
+  imputed_df <- data.frame()
+  
+  existing_data <- subset(data, Scheme.Group == "37-60" &
+                                Product.Code == product &
+                                Route.Number == route & 
+                                Activity.Group == activity_group &
+                                Pass.Fail == 1)
+  
+  # for all relative prodcuts of current product
+  for (i in 1:length(relative_products)){
+    curr_rel_product <- relative_products[i]
+    # obtain the interpolated data from current relative products
+    curr_imputed_df <- subset(data, Product.Code == curr_rel_product &
+                                    Scheme.Group == "37-60" &
+                                    Route.Number == route & 
+                                    Activity.Group == activity_group &
+                                    Pass.Fail == 1)
+    if (nrow(curr_imputed_df) != 0) {
+      curr_imputed_df["Product.Code"] <- product
+        
+      # mean of the difference between current relative product and product 
+      # with the same (Vessel.Group, Activity.Group, Route.Number, Scheme.Group)
+      mean_diff <- mean_difference(data,c(curr_rel_product, product))
+      
+      # if we cannot obtain the mean of difference of current relative product and product with the same vessel profile from the data
+      if(is.na(mean_diff)) next # skip current relative product
+      else{
+        curr_imputed_df <- curr_imputed_df %>%
+          mutate(Performance.Metric = pmax(0, pmin(100, Performance.Metric + mean_diff)))
+        
+        if (nrow(existing_data) != 0){
+          # remove existing combination from imputed dataframe
+          curr_imputed_df <- anti_join(curr_imputed_df, existing_data, 
+                                  by = c("Vessel.Group", "Route.Number", 
+                                         "Activity.Group", "Product.Code"))
+        }            
+      }
+      imputed_df <- rbind(imputed_df,curr_imputed_df)
+    }
+  }
+  return (imputed_df)
+}
+
+```
+
+
+```{r}
+# Impute Performance Data for a Product using Corresponding Product Rules
+# 
+# This function imputes performance data for a specified "product" based on a set of rules that
+# dictate relationships between different products. The function evaluates the provided "product"
+# code and applies corresponding product rules to determine how to impute the missing data.
+# It uses various auxiliary functions, including "equal_rules" and "unequal_rules," to perform
+# the imputation based on different conditions and relationships.
+#
+# Inputs:
+#   - data: The dataset containing the original performance metric data.
+#   - product: The product code for which data is being imputed.
+#   - route: The route number for which data is being imputed.
+#   - activity_group: The activity group for which data is being imputed.
+#   - scheme_group: The scheme group used to filter data for imputation.
+#   - count: The count of already imputed data entries for the specified product.
+#
+# Output:
+#   - imputed_df: A data frame containing the imputed performance data for the specified product,
+#                 based on the corresponding product rules and relationships.
+#
+# Note:
+#   - The function uses various rules based on the provided "product" code to determine how to
+#     perform imputation. It considers relative performance relationships between different products.
+#   - The function may use auxiliary functions like "equal_rules" and "unequal_rules" to perform
+#     specific types of imputation based on the relationships between products.
+#   - The function also performs checks to validate the provided "product" code and may print a
+#     message if the code is incorrect or if there's a need to use alternative methods for imputation.
+#   - The function aims to obtain at least 10 imputed data entries for each product, and it uses
+#     different methods to achieve this count by combining rules.
+#
+# Example usage:
+#   imputed_product_data <- by_product2(dataset, "a", 1, "61-100%", "37-60", 5)
+by_product2 <- function(data, product, route, activity_group, scheme_group, count){
+  # check the validation of the input of product code
+  if (product %in% unique(data$Product.Code) == FALSE){
+    print("The product code is incorrect.")
+    return(data.frame())
+  }
+  
+  # E or J or R or T
+  if (product == "e" | product == "j" | product == "r" | product == "t"){
+    # print ("need to use other methods")
+    return(data.frame())
+  }
+  
+  
+  # A = M < N
+  if (product == "a"){
+    imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "m")
+    # still need to interpolate more data by other product rules
+    if (nrow(imputed_df) + count < 10){
+      imputed_df2 <- unequal_rules(data, product, route, activity_group, scheme_group, "n")
+      imputed_df <- rbind(imputed_df,imputed_df2)
+    }
+  }
+  # B = I
+  if (product == "b"){
+    imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "i")
+  }
+  
+  # L < C = H < F = O
+  if (product == "c"){
+    imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "h")
+    # still need to interpolate more data by other product rules
+    if (nrow(imputed_df) + count < 10){
+      imputed_df2 <- unequal_rules(data, product, route, activity_group, 
+                                      scheme_group, c("l","f","o"))
+      imputed_df <- rbind(imputed_df,imputed_df2)
+    }
+  }
+  
+  # D = I < K
+  if (product == "d"){
+    imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "i")
+    # still need to interpolate more data by other product rules
+    if (nrow(imputed_df) + count < 10){
+      imputed_df2 <- unequal_rules(data, product, route, activity_group, scheme_group, "k")
+      imputed_df <- rbind(imputed_df,imputed_df2)
+    }
+  }  
+  
+  # L < C = H < F = O
+  if (product == "f"){
+    imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "o")
+    # still need to interpolate more data by other product rules
+    if (nrow(imputed_df) + count < 10){
+      imputed_df2 <- unequal_rules(data, product, route, activity_group, 
+                                   scheme_group, c("c","h","l"))
+      imputed_df <- rbind(imputed_df,imputed_df2)
+    }
+  } 
+  
+  # G < S
+  if (product == "g"){
+    imputed_df <- unequal_rules(data, product, route, activity_group, scheme_group, "s")
+  } 
+  
+  # L < C = H < F = O
+  if (product == "h"){
+    imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "c")
+    # still need to interpolate more data by other product rules
+    if (nrow(imputed_df) + count < 10){
+      imputed_df2 <- unequal_rules(data, product, route, activity_group, 
+                                   scheme_group, c("o","f","l"))
+      imputed_df <- rbind(imputed_df,imputed_df2)
+    }
+  } 
+  
+  # I
+  if (product == "i"){
+    searching_df <- subset(data, Activity.Group == activity_group &
+                                 Scheme.Group == scheme_group &
+                                 Route.Number == route &
+                                 Pass.Fail == 1)
+    # if D exist, I = D < K
+    if ("d" %in% unique(searching_df$Product.Code)){
+      imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "d")
+    }
+    # If no data for Product D, I = B < K
+    else {
+      imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "b")
+    }
+    # I < K
+    # still need to interpolate more data by other product rules
+    if (nrow(imputed_df) + count < 10){
+      imputed_df2 <- unequal_rules(data, product, route, activity_group, scheme_group, "k")
+      imputed_df <- rbind(imputed_df,imputed_df2)
+    }
+  } 
+  
+  # K > I = D/B
+  if (product == "k"){
+    imputed_df <- unequal_rules(data, product, route, activity_group, scheme_group, c("i","d"))
+  } 
+  
+  # L < C = H < F = O
+  if (product == "l"){
+    imputed_df <- unequal_rules(data, product, route, activity_group, 
+                                scheme_group, c("c","h","f","o"))
+  } 
+  
+  # M = A < N
+  if (product == "m"){
+    imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "a")
+    # still need to interpolate more data by other product rules
+    if (nrow(imputed_df) + count < 10){
+      imputed_df2 <- unequal_rules(data, product, route, activity_group, scheme_group, "n")
+      imputed_df <- rbind(imputed_df,imputed_df2)
+    }
+  } 
+  
+  # N > A = M
+  if (product == "n"){
+    imputed_df <- unequal_rules(data, product, route, activity_group, scheme_group, c("a","m"))
+  } 
+  
+  # O = F > H = C
+  if (product == "o"){
+    imputed_df <- equal_rules(data, product, route, activity_group, scheme_group, "f")
+    # still need to interpolate more data by other product rules
+    if (nrow(imputed_df) + count < 10){
+      imputed_df2 <- unequal_rules(data, product, route, activity_group, 
+                                   scheme_group, c("h","c"))
+      imputed_df <- rbind(imputed_df,imputed_df2)
+    }
+  } 
+  
+  # P < S
+  if (product == "p"){
+    imputed_df <- unequal_rules(data, product, route, activity_group, scheme_group, "s")
+  } 
+  
+  # Q < N
+  if (product == "q"){
+    imputed_df <- unequal_rules(data, product, route, activity_group, scheme_group, "n")
+  } 
+  # S > P & S > G
+  if (product == "s"){
+    imputed_df <- unequal_rules(data, product, route, activity_group, scheme_group, c("p","g"))
+  } 
+  
+  
+  # existing positive data for given (Route.Number, Product.Code, Activity.Group, Scheme.Group)
+  existing_data <- subset(data, Product.Code == product & 
+                                Route.Number == route &
+                                Activity.Group == activity_group &
+                                Scheme.Group == scheme_group &
+                                Pass.Fail == 1)
+  if (nrow(imputed_df) & nrow(existing_data) != 0){
+    # remove existing combination from imputed dataframe
+    imputed_df <- anti_join(imputed_df, existing_data, 
+                            by = c("Vessel.Group", "Route.Number", "Activity.Group",
+                                   "Product.Code", "Scheme.Group"))
+  }
+  
+  return (imputed_df)
+}
+```
+
+
+### 6. Impute by product
+```{r, warning=FALSE}
+# Do the imputation by product for the groups still need to be imputed
+n_before_by_product <- nrow(data2)
+# imputed_by_product <- data.frame()
+for(i in 1:nrow(need_to_impute_groups)){
+  imputed_df <- by_product2(data2, need_to_impute_groups$Product.Code[i],
+                                   need_to_impute_groups$Route.Number[i],
+                                   need_to_impute_groups$Activity.Group[i],
+                                   need_to_impute_groups$Scheme.Group[i],
+                                   need_to_impute_groups$count[i])
+  data2 <- rbind(data2, imputed_df)
+}
+# number of data imputed by product
+nrow(data2)-n_before_by_product
+data2
+```
+
+
+
+
+# Assessments
+Product Data (by assumption products can be grouped)
+Only analysis for
+- 11 products: A, F, G, I, K, M, N, O, Q, R, S
+- vessels in the 37–60-month scheme
+```{r}
+# products for final analysis
+products <- c("a","f","g","i","k","m","n","o","q","r","s")
+
+# extract the interested data for analysis
+final_data <- subset(data2, Product.Code %in% products & Scheme.Group == "37-60")
+final_data
+
+# do the counting again to check the missing and small sample combinations 
+full_combinations3 <- expand.grid(Product.Code = products,
+                                  Route.Number = unique(data$Route.Number),
+                                  Activity.Group = unique(data$Activity.Group))
+
+grouped_count4 <- grouped_counting(final_data, full_combinations3)
+final_small_sample <- subset(grouped_count4, count < 10)
+final_small_sample
+
+# visualize the small sample combination after all interpolations
+ggplot(final_small_sample, aes(x = count)) +
+  geom_histogram(binwidth = 1, fill = "light blue", color = "black") +
+  labs(x = "Count", y = "Frequency", title = "Histogram of Small Count Numbers") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5) +
+  scale_x_continuous(breaks = 1:9) +  # Set x-axis breaks from 1 to 9
+  theme_minimal()
+
+```
+
+## Quantitative
+```{r}
+# compute the mean performance value for each unique group (Product.Code, Route.Number, Activity.Group)
+
+# For activity group == "0-30%"
+AG1 <- subset(final_data, Activity.Group == "0-30%")
+quan_AG1 <- AG1 %>% group_by(Route.Number,Product.Code) %>%
+  summarise(Mean = round(mean(Performance.Metric), 2),
+            SD = round(sd(Performance.Metric),2), 
+            .groups = "drop")  %>%
+  arrange(Route.Number, Mean)
+# range(quan_AG1$Mean)
+
+
+
+# For activity group == "31-60%"
+AG2 <- subset(final_data, Activity.Group == "31-60%")
+quan_AG2 <- AG2 %>% group_by(Route.Number,Product.Code) %>%
+  summarise(Mean = round(mean(Performance.Metric), 2),
+            SD = round(sd(Performance.Metric),2), 
+            .groups = "drop")  %>%
+  arrange(Route.Number, Mean)
+# range(quan_AG2$Mean)
+
+# For activity group == "61-100%"
+AG3 <- subset(final_data, Activity.Group == "61-100%")
+quan_AG3 <- AG3 %>% group_by(Route.Number,Product.Code) %>%
+  summarise(Mean = round(mean(Performance.Metric), 2),
+            SD = round(sd(Performance.Metric),2),
+            .groups = "drop")  %>%
+  arrange(Route.Number, Mean)
+# range(quan_AG3$Mean)
+
+
+# the holistic quantative results with the counting indicating the small sample combinations
+quan_result <- final_data %>% group_by(Route.Number,Product.Code,Activity.Group) %>%
+  summarise(Mean = round(mean(Performance.Metric), 2),
+            SD = round(sd(Performance.Metric),2),
+            .groups = "drop")  %>%
+  arrange(Activity.Group,Route.Number, Product.Code) %>%
+  left_join(final_small_sample, by = c("Route.Number", "Product.Code", "Activity.Group"))
+quan_result
+```
+
+
+
+### confidence interval
+```{r}
+z_value <- 1.96  # For a 95% confidence interval
+
+# select the variables we are interested in
+final_data <- final_data[c("Route.Number", "Activity.Group", "Product.Code", "Performance.Metric")]
+
+# compute the population information for each product
+populations <- final_data %>%
+    group_by(Product.Code)  %>%
+  summarise(N = n(),
+            variance = var(Performance.Metric), 
+            .groups = "drop")
+
+
+# obtain the 95% confidence interval for each combination
+CI <- final_data %>% group_by(Activity.Group, Route.Number, Product.Code) %>%
+  summarise(Mean = mean(Performance.Metric),
+            SD = sd(Performance.Metric), 
+            .groups = "drop")  %>%
+  arrange(Activity.Group, Route.Number, Product.Code) %>% 
+  inner_join(grouped_count4, by=c("Activity.Group", "Route.Number", "Product.Code")) %>% 
+  inner_join(populations, by=c("Product.Code")) %>%
+  mutate(lower.bound = round(Mean - (z_value * sqrt((N*variance/count - variance)/(N-1))),2),
+         upper.bound = round(Mean + (z_value * sqrt((N*variance/count - variance)/(N-1))),2)) %>%
+  mutate(CI = paste("[", lower.bound, ", ", upper.bound, "]", sep = ""))
+
+
+
+CI[c("Activity.Group", "Route.Number", "Product.Code", "Mean", "CI")]
+
+
+```
+
+## Qualitative - traffic light system
+```{r}
+summary(data$Performance.Metric)
+```
+
+Traffic light system classification
+```{r}
+# do the classification according to the quantile information of the dataset
+quli_result <- quan_result %>%
+  mutate(TLS = ifelse(Mean <= summary(data$Performance.Metric)["1st Qu."], "Green", 
+                      ifelse(Mean > summary(data$Performance.Metric)["3rd Qu."], "Red",
+                             "Yellow"))) 
+quli_result
+```
+
+
